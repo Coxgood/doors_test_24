@@ -15,10 +15,15 @@ router = Router()
 # ====== СПИСОК КВАРТИР ======
 @router.callback_query(F.data.startswith("order_"))
 async def apartments_list(callback: CallbackQuery, state: FSMContext):
-    """Показывает список квартир для бронирования"""
+    # ✅ Сразу отвечаем Telegram
+    try:
+        await callback.answer()
+    except:
+        pass
 
-    # Сразу отвечаем на callback
-    await callback.answer()
+    print("\n" + "=" * 60)
+    print("🔍 apartments_list ВЫЗВАНА")
+    # ... остальная логика (удали старый callback.answer() в конце)
 
     # Получаем telegram_id из callback
     telegram_id = callback.data.split("_")[1]
@@ -79,9 +84,13 @@ async def apartments_list(callback: CallbackQuery, state: FSMContext):
 # ====== КАЛЕНДАРЬ ЗАЕЗДА ======
 @router.callback_query(F.data.startswith("calendarCheckin_"))
 async def calendar_checkin(callback: CallbackQuery, state: FSMContext):
-    """Показывает календарь для выбора даты заезда"""
-    # Сразу отвечаем на callback
-    await callback.answer()
+    # ✅ Сразу отвечаем
+    try:
+        await callback.answer()
+    except:
+        pass
+
+    # ... остальная логика (удали callback.answer() из конца)
 
     data = callback.data.split("_")
     door_id = int(data[2])
@@ -201,10 +210,13 @@ async def calendar_checkin(callback: CallbackQuery, state: FSMContext):
 # ====== ВОЗВРАТ К СПИСКУ КВАРТИР ======
 @router.callback_query(F.data == "back_to_apartments")
 async def back_to_apartments(callback: CallbackQuery, state: FSMContext):
-    """Возврат к списку квартир"""
+    # ✅ Сразу отвечаем
+    try:
+        await callback.answer()
+    except:
+        pass
 
-    # Сразу отвечаем на callback
-    await callback.answer()
+    # ... остальная логика
 
     # Получаем данные из state
     state_data = await state.get_data()

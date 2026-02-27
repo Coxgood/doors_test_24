@@ -170,7 +170,13 @@ async def show_invites_menu(callback: CallbackQuery, user_role: str):
 
 @router.callback_query(F.data == "profile")
 async def show_profile(callback: CallbackQuery, user_role: str):
-    """Показывает профиль пользователя"""
+    # ✅ Сразу отвечаем
+    try:
+        await callback.answer()
+    except:
+        pass
+
+
     text = (
         f"{config.EMOJI['info']} <b>Ваш профиль</b>\n\n"
         f"Роль: {user_role}\n"
@@ -186,7 +192,6 @@ async def show_profile(callback: CallbackQuery, user_role: str):
     ]])
 
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-    await callback.answer()
 
 
 @router.callback_query(F.data == "my_invites")

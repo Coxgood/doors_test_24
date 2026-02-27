@@ -14,7 +14,11 @@ router = Router()
 
 @router.callback_query(F.data.startswith("checktimein_"))
 async def check_time_in_handler(callback: CallbackQuery, state: FSMContext):
-    """Выбор времени в частично занятый день"""
+    # ✅ Сразу отвечаем
+    try:
+        await callback.answer()
+    except:
+        pass
 
     # ====== 1. ПРОВЕРЯЕМ СОСТОЯНИЕ ======
     data = await state.get_data()
@@ -42,7 +46,6 @@ async def check_time_in_handler(callback: CallbackQuery, state: FSMContext):
             ]])
         )
         await state.clear()
-        await callback.answer()
         return
 
     # ====== 2. СОХРАНЯЕМ USER_ID ======
@@ -101,6 +104,11 @@ async def check_time_in_handler(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("checkoutday_"))
 async def checkout_date_handler(callback: CallbackQuery, state: FSMContext):
+    # ✅ Сразу отвечаем
+    try:
+        await callback.answer()
+    except:
+        pass
 
 
     parts = callback.data.split("_")
@@ -114,7 +122,6 @@ async def checkout_date_handler(callback: CallbackQuery, state: FSMContext):
 
     door_id = int(parts[1])
 
-    await callback.answer()
 
     if month < 1 or month > 12:
         await callback.message.answer("❌ Ошибка в дате. Попробуйте снова.")
@@ -208,6 +215,11 @@ async def checkout_date_handler(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("checkouttime_"))
 async def checkout_time_handler(callback: CallbackQuery, state: FSMContext):
     """Выбор времени выселения"""
+    # ✅ Сразу отвечаем
+    try:
+        await callback.answer()
+    except:
+        pass
 
 
     # ====== 1. ПРОВЕРЯЕМ СОСТОЯНИЕ ======
@@ -236,7 +248,6 @@ async def checkout_time_handler(callback: CallbackQuery, state: FSMContext):
             f"{config.EMOJI['warning']} Данные устарели. Начните с выбора квартиры."
         )
         await state.clear()
-        await callback.answer()
         return
 
     # ====== 4. ФОРМИРУЕМ КНОПКИ ======

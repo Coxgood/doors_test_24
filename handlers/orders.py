@@ -14,6 +14,10 @@ router = Router()
 @router.callback_query(F.data.startswith("accept_order"))
 async def accept_order_handler(callback: CallbackQuery, state: FSMContext):
     """Подтверждение и создание бронирования"""
+    try:
+        await callback.answer()
+    except:
+        pass
 
     # ====== 1. ПРОВЕРЯЕМ СОСТОЯНИЕ ======
     data = await state.get_data()
@@ -42,7 +46,6 @@ async def accept_order_handler(callback: CallbackQuery, state: FSMContext):
             ]])
         )
         await state.clear()
-        await callback.answer()
         return
 
     # ====== 2. БЕРЁМ USER_ID (С ЗАПАСНЫМ ВАРИАНТОМ) ======
@@ -116,8 +119,12 @@ async def accept_order_handler(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("orderinfo_"))
 async def order_info_handler(callback: CallbackQuery, state: FSMContext):
+    # ✅ Сразу отвечаем
+    try:
+        await callback.answer()
+    except:
+        pass
     """Информация по существующему бронированию"""
-    await callback.answer()
 
     order_id = callback.data.split("_")[2]
     await state.clear()
@@ -197,7 +204,10 @@ async def order_info_handler(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("delorder_"))
 async def del_order_confirm_handler(callback: CallbackQuery):
     """Подтверждение удаления бронирования"""
-    await callback.answer()
+    try:
+        await callback.answer()
+    except:
+        pass
 
     order_id = callback.data.split("_")[1]
 
@@ -223,6 +233,11 @@ async def del_order_confirm_handler(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("delorder1_"))
 async def del_order_execute_handler(callback: CallbackQuery):
     """Непосредственное удаление бронирования"""
+    try:
+        await callback.answer()
+    except:
+        pass
+
     order_id = callback.data.split("_")[1]
 
     del_order(order_id)
