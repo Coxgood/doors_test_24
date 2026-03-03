@@ -8,6 +8,7 @@ from database import init_db
 from handlers import start, booking, calendar, time, orders
 from middlewares.role import RoleMiddleware
 from handlers import admin_invites
+from handlers import apartment_requests
 
 
 # Инициализация бота
@@ -25,6 +26,7 @@ dp.include_router(booking.router)
 dp.include_router(calendar.router)
 dp.include_router(time.router)
 dp.include_router(orders.router)
+dp.include_router(apartment_requests.router)
 
 # start.router — самым последним!
 dp.include_router(start.router)

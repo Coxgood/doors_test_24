@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 import config
 from database import create_invite, check_invite, use_invite, get_connection
-from keyboards.admin_keyboards import admin_panel_keyboard
+
 
 router = Router()
 
@@ -16,6 +16,7 @@ router = Router()
 def generate_invite_code(length=8):
     """Генерирует уникальный код приглашения"""
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
 
 
 # ====== ВХОД В АДМИН-ПАНЕЛЬ ======

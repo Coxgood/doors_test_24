@@ -1,13 +1,13 @@
 # handlers/orders.py
+from datetime import datetime
+import pytz
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
-from datetime import datetime
 
-import config  # 👈 ИМПОРТИРУЕМ config, а не constants
+import config
 from database import take_order, doors_search1, del_order, new_order
 from utils import qrcode_image
-
 router = Router()
 
 
@@ -21,7 +21,6 @@ async def accept_order_handler(callback: CallbackQuery, state: FSMContext):
 
     # ====== 1. ПРОВЕРЯЕМ СОСТОЯНИЕ ======
     data = await state.get_data()
-    print(f"📦 [accept_order] ДО: {data}")
 
     # Что должно быть в state на финальном этапе
     required_keys = ['user_id', 'door_id', 'address', 'checkin_date', 'checkout_date', 'checkin_pass']
@@ -54,14 +53,22 @@ async def accept_order_handler(callback: CallbackQuery, state: FSMContext):
         print(f"⚠️ user_id не найден в state, берём из callback: {user_id}")
 
     # ====== 3. ФОРМИРУЕМ ДАННЫЕ ДЛЯ БД ======
-    from datetime import datetime
-    import random
-    import string
-
     booking_number = f"BKG-{datetime.now().strftime('%Y%m%d%H%M%S')}-{user_id}"
 
-    checkin_str = data['checkin_date'].strftime("%Y-%m-%d %H:%M")
-    checkout_str = data['checkout_date'].strftime("%Y-%m-%d %H:%M")
+    # Получаем смещение из state
+    tz_offset = data.get('apartment_tz_offset', '+03')  # '+10' или '+03'
+
+    # Создаём фиксированное смещение в минутах
+    offset_minutes = int(tz_offset.replace('+', '')) * 60
+    apartment_tz = pytz.FixedOffset(offset_minutes)  # +10 → 600 минут
+
+    # Привязываем даты (replace, не localize)
+    checkin_aware = data['checkin_date'].replace(tzinfo=apartment_tz)
+    checkout_aware = data['checkout_date'].replace(tzinfo=apartment_tz)
+
+    # ✅ Преобразуем в строки с меткой пояса (ISO формат)
+    checkin_str = checkin_aware.isoformat()  # "2026-04-02T08:00:00+10:00"
+    checkout_str = checkout_aware.isoformat()  # "2026-04-03T08:00:00+10:00"
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     guest_name = f"Гость {user_id}"
@@ -81,7 +88,6 @@ async def accept_order_handler(callback: CallbackQuery, state: FSMContext):
         'rent'
     )
 
-    print(f"📦 Сохраняем бронь: {order_info}")
     new_order(order_info)
 
     # ====== 4. ГЕНЕРИРУЕМ QR ======
@@ -112,7 +118,6 @@ async def accept_order_handler(callback: CallbackQuery, state: FSMContext):
     )
 
     # ====== 7. ОЧИЩАЕМ STATE И ЛОГИРУЕМ ======
-    print(f"📦 [accept_order] УСПЕХ! Бронь создана")
     await state.clear()
     await callback.answer()
 
@@ -134,29 +139,33 @@ async def order_info_handler(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(f"{config.EMOJI['warning']} Бронирование не найдено")
         return
 
-    # ИСПОЛЬЗУЕМ КОНСТАНТЫ ИЗ CONFIG
-    print(f"📦 [order_info] Данные из БД: {order}")
-    print(f"📦 [order_info] Длина кортежа: {len(order)}")
+    # Получаем данные брони
+    apartment_id = order['apartment_id']
+    guest_name = order['guest_name']
+    guest_phone = order['guest_phone']
+    checkin_date = order['checkin_date']
+    checkout_date = order['checkout_date']
+    qr_code = order['qr_code']
+    status = order['status']
+    created_at = order['created_at']
 
-    apartment_id = order[config.BOOKING_APARTMENT_ID]
-    guest_name = order[config.BOOKING_GUEST_NAME]
-    guest_phone = order[config.BOOKING_GUEST_PHONE]
-    checkin_date = order[config.BOOKING_CHECKIN_DATE]
-    checkout_date = order[config.BOOKING_CHECKOUT_DATE]
-    qr_code = order[config.BOOKING_QR_CODE]
-    status = order[config.BOOKING_STATUS]
-    created_at = order[config.BOOKING_CREATED_AT]
-
-    print(f"📦 [order_info] apartment_id={apartment_id}, guest_name={guest_name}, status={status}")
-
-    # Получаем адрес квартиры
+    # Получаем информацию о квартире
     door_info = doors_search1(apartment_id)
     if door_info:
-        print(f"📦 [order_info] door_info: {door_info}")
-        # Используем константу для адреса
-        address = door_info[config.APARTMENT_ADDRESS]
+        address = door_info['address']
+        # Получаем таймзону квартиры
+        apt_tz_str = door_info.get('timezone', 'Europe/Moscow')
+        apt_tz = pytz.timezone(apt_tz_str)
+
+        # Конвертируем время в таймзону квартиры
+        checkin_local = checkin_date.astimezone(apt_tz)
+        checkout_local = checkout_date.astimezone(apt_tz)
+
+        print(f"📦 [order_info] таймзона квартиры: {apt_tz_str}")
     else:
         address = "адрес не найден"
+        checkin_local = checkin_date
+        checkout_local = checkout_date
         print(f"⚠️ Квартира apartment_id={apartment_id} не найдена")
 
     # Генерируем QR-код
@@ -166,7 +175,7 @@ async def order_info_handler(callback: CallbackQuery, state: FSMContext):
     # Кнопки действий
     btn1 = InlineKeyboardButton(
         text=f"{config.EMOJI['delete']} Удалить ордер",
-        callback_data=f'delorder_{order[config.BOOKING_ID]}'
+        callback_data=f'delorder_{order["id"]}'
     )
     btn2 = InlineKeyboardButton(
         text=f"{config.EMOJI['door']} Открыть дверь",
@@ -179,27 +188,25 @@ async def order_info_handler(callback: CallbackQuery, state: FSMContext):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[btn1, btn2], [btn3]])
 
-    # Преобразуем строки в datetime
-    try:
-        checkin_time = datetime.strptime(checkin_date, "%Y-%m-%d %H:%M")
-        checkout_time = datetime.strptime(checkout_date, "%Y-%m-%d %H:%M")
-        delta_date = checkout_time - checkin_time
-        delta_str = str(delta_date)
-    except Exception as e:
-        print(f"⚠️ Ошибка преобразования даты: {e}")
-        delta_str = "не определен"
+    # Рассчитываем период
+    delta_date = checkout_local - checkin_local
+    delta_str = str(delta_date)
+
+    # Формируем подпись с локальным временем
+    caption = (
+        f"{config.EMOJI['apartment']} <b>{address}</b>\n\n"
+        f"{config.EMOJI['calendar']} Заезд: {checkin_local.strftime('%d.%m.%Y %H:%M')}\n"
+        f"{config.EMOJI['calendar']} Выезд: {checkout_local.strftime('%d.%m.%Y %H:%M')}\n"
+        f"{config.EMOJI['time']} Период: {delta_str}\n"
+        f"{config.EMOJI['id']} Статус: {status}\n"
+    )
 
     await callback.message.answer_photo(
         photo=photo,
-        caption=f"{config.EMOJI['apartment']} <b>{address}</b>\n\n"
-                f"{config.EMOJI['calendar']} Заезд: {checkin_date}\n"
-                f"{config.EMOJI['calendar']} Выезд: {checkout_date}\n"
-                f"{config.EMOJI['time']} Период: {delta_str}\n"
-                f"{config.EMOJI['id']} Статус: {status}\n",
+        caption=caption,
         reply_markup=keyboard,
         parse_mode="HTML"
     )
-
 
 @router.callback_query(F.data.startswith("delorder_"))
 async def del_order_confirm_handler(callback: CallbackQuery):

@@ -13,51 +13,68 @@ router = Router()
 
 
 # ====== СПИСОК КВАРТИР ======
+from datetime import datetime
+import pytz
+
+
 @router.callback_query(F.data.startswith("order_"))
 async def apartments_list(callback: CallbackQuery, state: FSMContext):
-    # ✅ Сразу отвечаем Telegram
-    try:
-        await callback.answer()
-    except:
-        pass
+    """Показывает список квартир для бронирования"""
 
-    print("\n" + "=" * 60)
-    print("🔍 apartments_list ВЫЗВАНА")
-    # ... остальная логика (удали старый callback.answer() в конце)
+    print(f"🔍 [apartments_list] callback.data = {callback.data}")
 
-    # Получаем telegram_id из callback
     telegram_id = callback.data.split("_")[1]
+    print(f"🔍 [apartments_list] telegram_id из callback = {telegram_id}")
 
-    # Получаем внутренний ID пользователя
+    user_id = get_user_id_by_telegram(telegram_id)
+    print(f"🔍 [apartments_list] user_id из БД = {user_id}")
+
+    if not user_id:
+        print(f"❌ [apartments_list] Пользователь {telegram_id} не найден в БД")
+        await callback.message.answer("⚠️ Вы не зарегистрированы в системе")
+        await callback.answer()
+        return
+
+    telegram_id = callback.data.split("_")[1]
     user_id = get_user_id_by_telegram(telegram_id)
 
     if not user_id:
         print("❌ Пользователь не найден")
         await callback.message.answer("⚠️ Вы не зарегистрированы в системе")
+        await callback.answer()
         return
 
-    # Сохраняем user_id в state
     await state.update_data(user_id=user_id)
-
-    # Получаем список квартир
     apartments = room_list(user_id)
 
     if not apartments:
         await callback.message.answer("🏠 У вас нет доступных квартир")
+        await callback.answer()
         return
-    # дата в колбэк
-    today = date.today().strftime("%Y-%m-%d")
 
-    # Формируем кнопки
     buttons = []
     for apt in apartments:
-        # apt - кортеж: (apartment_id, owner_id, address, ...)
-        apartment_id = apt[0]
-        address = apt[2]
+        apartment_id = apt['apartment_id']
+        address = apt['address']
+        city = apt.get('city', '')
+        timezone_str = apt['timezone']
 
-        callback_data = f'calendarCheckin_{today}_{apartment_id}'
+        # Текущее время в поясе квартиры
+        tz = pytz.timezone(timezone_str)
+        now = datetime.now(tz)
+        today_str = now.strftime("%Y-%m-%d")
+
+        # Получаем смещение в формате +03:00 или +10:00
+        tz_offset = now.strftime('%z')
+        tz_formatted = f"{tz_offset[:3]}:{tz_offset[3:]}"  # +03:00 или +10:00
+
+        # Формируем текст кнопки: "🏠 Москва (+03:00) ул. Ленина, д. 1, кв. 1"
+        display_text = f" {city} ({tz_formatted})   🏠   {address}"
+
+        callback_data = f'calendarCheckin_{today_str}-{tz_offset[:3]}_{apartment_id}'
+
         btn = [InlineKeyboardButton(
-            text=f"{config.EMOJI['apartment']} {address}",
+            text=f"{display_text}",
             callback_data=callback_data
         )]
         buttons.append(btn)
@@ -70,7 +87,6 @@ async def apartments_list(callback: CallbackQuery, state: FSMContext):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-    # Устанавливаем состояние
     await state.set_state(Form.door_id)
 
     await callback.message.answer(
@@ -78,40 +94,56 @@ async def apartments_list(callback: CallbackQuery, state: FSMContext):
         reply_markup=keyboard,
         parse_mode="HTML"
     )
-    print("=" * 60 + "\n")
+    await callback.answer()
 
 
 # ====== КАЛЕНДАРЬ ЗАЕЗДА ======
 @router.callback_query(F.data.startswith("calendarCheckin_"))
 async def calendar_checkin(callback: CallbackQuery, state: FSMContext):
-    # ✅ Сразу отвечаем
+    """Показывает календарь для выбора даты заезда"""
+
+    # ✅ Сразу отвечаем на callback
     try:
         await callback.answer()
     except:
         pass
 
-    # ... остальная логика (удали callback.answer() из конца)
 
+    # Разбираем callback в формате calendarCheckin_2026-03-02-10_9
     data = callback.data.split("_")
+
+    # data = ['calendarCheckin', '2026-03-02-10', '9']
     door_id = int(data[2])
 
-    # Определяем режим: первый вход или переключение месяца
-    if len(data) > 2:
-        start_date_str = data[1]
-        ymd = start_date_str.split('-')
-        start_day = date(int(ymd[0]), int(ymd[1]), 1)  # всегда 1-е число
-    else:
-        start_day = date.today()
+    # Парсим дату и смещение
+    date_part = data[1]  # '2026-03-02-10'
+    date_parts = date_part.split('-')  # ['2026', '03', '02', '10']
 
+    date_str = '-'.join(date_parts[:3])  # '2026-03-02'
+    tz_offset = date_parts[3]  # '10'
+
+    # Преобразуем строку даты в объект date
+    start_day = datetime.strptime(date_str, "%Y-%m-%d").date()
+
+    # Проверяем state
     state_data = await state.get_data()
+    print(f"📦 state_data: {state_data}")
+
     if 'user_id' not in state_data:
+        print("❌ Нет user_id в state, очищаем")
         await callback.message.delete()
         await callback.message.answer("⚠️ Данные устарели. Начните заново.")
         await state.clear()
         return
 
     user_id = state_data.get('user_id')
-    await state.update_data(user_id=user_id, door_id=door_id)
+
+    # ✅ Сохраняем всё в state
+    await state.update_data(
+        user_id=user_id,
+        door_id=door_id,
+        apartment_tz_offset=tz_offset  # сохраняем смещение для дальнейшего использования
+    )
 
     # Получаем данные календаря (8-10 недель)
     months, months1 = orders_list(door_id, start_day.strftime('%Y-%m-%d'))
@@ -119,14 +151,13 @@ async def calendar_checkin(callback: CallbackQuery, state: FSMContext):
     # Получаем адрес квартиры
     apt_info = room_search(door_id)
     if apt_info:
-        address = apt_info[config.APARTMENT_ADDRESS]
+        address = apt_info['address']
+        await state.update_data(address=address)
     else:
         address = "🏠 Адрес не найден"
         print(f"⚠️ Квартира с ID {door_id} не найдена")
 
-    await state.update_data(address=address)
-
-    # ЕДИНАЯ КЛАВИАТУРА
+    # ===== ФОРМИРУЕМ КЛАВИАТУРУ =====
     rows = []
 
     # Проходим по всем месяцам
@@ -153,7 +184,6 @@ async def calendar_checkin(callback: CallbackQuery, state: FSMContext):
                     callback_data=callback_data
                 ))
             rows.append(btns)
-
 
     # Кнопки других месяцев
     if months1:
@@ -182,7 +212,6 @@ async def calendar_checkin(callback: CallbackQuery, state: FSMContext):
         callback_data="back_to_apartments"
     )])
 
-
     keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
 
     # Устанавливаем состояние для обработки нажатий
@@ -204,7 +233,6 @@ async def calendar_checkin(callback: CallbackQuery, state: FSMContext):
         )
 
     print("=" * 60 + "\n")
-
 
 
 # ====== ВОЗВРАТ К СПИСКУ КВАРТИР ======
@@ -238,8 +266,8 @@ async def back_to_apartments(callback: CallbackQuery, state: FSMContext):
     # Формируем кнопки
     buttons = []
     for apt in apartments:
-        apartment_id = apt[0]
-        address = apt[2]
+        apartment_id = apt['apartment_id']
+        address = apt['address']
 
         callback_data = f'calendarCheckin_{apartment_id}'
         btn = [InlineKeyboardButton(
@@ -258,7 +286,6 @@ async def back_to_apartments(callback: CallbackQuery, state: FSMContext):
 
     # Устанавливаем состояние
     await state.set_state(Form.door_id)
-    print(f"🔧 Установлено состояние: Form.door_id")
 
     await callback.message.edit_text(
         f"{config.EMOJI['apartment']} <b>Выберите квартиру:</b>",

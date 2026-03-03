@@ -22,7 +22,6 @@ async def check_time_in_handler(callback: CallbackQuery, state: FSMContext):
 
     # ====== 1. ПРОВЕРЯЕМ СОСТОЯНИЕ ======
     data = await state.get_data()
-    print(f"📦 [check_time_in] ДО: {data}")
 
     # Что должно быть в state на этом этапе
     required_keys = ['user_id', 'door_id', 'address']

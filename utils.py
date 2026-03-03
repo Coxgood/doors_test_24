@@ -1,16 +1,12 @@
 # utils.py
-import config
+import calendar
 import random
 import string
-import qrcode
-import sqlite3
-import calendar
-from datetime import date, datetime, timedelta
-
-import calendar
-from datetime import datetime, timedelta
-from database import get_connection
+import pytz
+from datetime import datetime, timedelta, timezone
+from database import get_connection, get_bookings_with_local_time
 import config
+import qrcode
 
 # ========== ГЕНЕРАЦИЯ ==========
 
@@ -26,58 +22,31 @@ def qrcode_image(password):
 
 
 # ========== КАЛЕНДАРЬ ==========
-
-# utils.py
-import calendar
-from datetime import datetime, timedelta
-from database import get_connection
-import config
-
-
 def orders_list(door_id, start_day):
     """
     Возвращает данные для календаря бронирований
     start_day - дата начала показа (обычно сегодня или первое число месяца)
     """
-    conn = get_connection()
-    cursor = conn.cursor()
 
-    # Текущая дата (без времени)
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # Получаем брони с правильной таймзоной
+    bookings, apt_tz = get_bookings_with_local_time(door_id)
 
-    # Дата начала показа
-    start = datetime.strptime(start_day, "%Y-%m-%d")
+    # Текущая дата в таймзоне квартиры
+    today = datetime.now(apt_tz).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Дата начала показа (приводим к таймзоне квартиры)
+    start = datetime.strptime(start_day, "%Y-%m-%d").replace(tzinfo=apt_tz)
 
     # Рассчитываем дату окончания показа (8 недель от start)
     end_date = start + timedelta(weeks=8)
-
-    # Получаем все бронирования для этой квартиры
-    cursor.execute("""
-        SELECT id, checkin_date, checkout_date 
-        FROM bookings 
-        WHERE apartment_id = ? 
-        AND (
-            (checkin_date >= ? AND checkin_date <= ?)
-            OR (checkout_date >= ? AND checkout_date <= ?)
-            OR (checkin_date <= ? AND checkout_date >= ?)
-        )
-    """, (
-        door_id,
-        start.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'),
-        start.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'),
-        start.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')
-    ))
-
-    bookings = cursor.fetchall()
-    conn.close()
 
     # Словарь с данными для дней
     day_data = {}
 
     for booking in bookings:
-        order_id = booking[0]
-        checkin = datetime.strptime(booking[1], "%Y-%m-%d %H:%M")
-        checkout = datetime.strptime(booking[2], "%Y-%m-%d %H:%M")
+        order_id = booking['id']
+        checkin = booking['checkin']
+        checkout = booking['checkout']
 
         current = checkin
         while current.date() <= checkout.date():
@@ -163,7 +132,7 @@ def orders_list(door_id, start_day):
                                 data = day_data[date_str]
                                 if data[0] == 'full':
                                     display = f"{day}❗"
-                                    callback = f"orderinfo_{data[1]}"
+                                    callback = f"orderinfo_{date_str}_{data[1]}"
                                 else:  # partial
                                     display = f"{day}❕"
                                     callback = f"checktimein_{data[1]}_{data[2]}"
@@ -177,13 +146,10 @@ def orders_list(door_id, start_day):
                 weeks.append(week_days)
 
         if month_has_days:
-            # Проверяем, не превысим ли лимит
             if total_weeks + len(weeks) <= max_weeks:
-                # Добавляем весь месяц
                 months.append(weeks)
                 total_weeks += len(weeks)
             else:
-                # Добавляем только часть недель
                 remaining = max_weeks - total_weeks
                 months.append(weeks[:remaining])
                 total_weeks = max_weeks
@@ -192,7 +158,6 @@ def orders_list(door_id, start_day):
             if len(months) == 1:
                 first_month_done = True
 
-        # Переходим к следующему месяцу
         if current_date.month == 12:
             current_date = current_date.replace(year=current_date.year + 1, month=1)
         else:
@@ -212,68 +177,48 @@ def orders_list(door_id, start_day):
     return months, future_months
 
 
-
-
 def margin_day(chekin, room_id):
     """Возвращает доступные даты для выселения"""
     str_date = f'{chekin[0]}-{chekin[1]}-{chekin[2]} {chekin[3]}:00'
     chekin_date = datetime.strptime(str_date, '%Y-%m-%d %H:%M')
 
-    from database import get_connection
-    db = get_connection()
-    cursor = db.cursor()
+    # Получаем брони с правильной таймзоной
+    bookings, apt_tz = get_bookings_with_local_time(room_id)
 
-    cursor.execute("SELECT * FROM bookings WHERE apartment_id = ?", (str(room_id),))
-    ord_reqDB = cursor.fetchall()
-    db.close()
+    # Приводим chekin_date к таймзоне квартиры
+    chekin_date = apt_tz.localize(chekin_date)
 
-    margin_date = datetime(3970, 1, 1)
+    margin_date = datetime(3970, 1, 1, tzinfo=apt_tz)
 
-    # Собираем все события (заезды и выезды)
+    # Собираем все события (заезды и выезды) в местном времени
     events = []
 
-    for ord in ord_reqDB:
-        # Заезд (checkin)
-        checkin_str = ord[config.BOOKING_CHECKIN_DATE]  # 👈 ИСПРАВЛЕНО
-        if isinstance(checkin_str, str):
-            checkin_date = datetime.strptime(checkin_str, "%Y-%m-%d %H:%M")
-            events.append(('checkin', checkin_date, ord[0]))
+    for booking in bookings:
+        events.append(('checkin', booking['checkin'], booking['id']))
+        events.append(('checkout', booking['checkout'], booking['id']))
 
-        # Выезд (checkout)
-        checkout_str = ord[config.BOOKING_CHECKOUT_DATE]  # 👈 ИСПРАВЛЕНО
-        if isinstance(checkout_str, str):
-            checkout_date = datetime.strptime(checkout_str, "%Y-%m-%d %H:%M")
-            events.append(('checkout', checkout_date, ord[0]))
+    for i, ev in enumerate(events):
+        event_type, event_date, event_id = ev
 
-    # ... остальной код без изменений
     # Сортируем по дате
     events.sort(key=lambda x: x[1])
 
-    # Находим ближайшее событие, влияющее на выселение
-    margin_date = datetime(3970, 1, 1)
-
-    # 1. Сначала проверим события того же дня
+    # Находим ближайшее событие
     same_day_events = [e for e in events if e[1].date() == chekin_date.date()]
 
     for event_type, event_date, event_id in same_day_events:
-        # Если есть выезд ПОСЛЕ заезда в тот же день
         if event_type == 'checkout' and event_date > chekin_date:
             margin_date = event_date
             break
 
-    # 2. Если не нашли, ищем первый заезд после chekin_date
     if margin_date.year == 3970:
         for event_type, event_date, event_id in events:
             if event_type == 'checkin' and event_date >= chekin_date:
                 margin_date = event_date
                 break
 
-
-    b_date = datetime.strptime(str(chekin_date), "%Y-%m-%d %H:%M:%S")
-    e_date = datetime.strptime(str(margin_date), "%Y-%m-%d %H:%M:%S")
-    b1_date = b_date.replace(hour=0, minute=0, second=0, microsecond=0).date()
-    e1_date = e_date.replace(hour=0, minute=0, second=0, microsecond=0).date()
-
+    b1_date = chekin_date.date()
+    e1_date = margin_date.date()
 
     if chekin_date.day > 16:
         m = 1
@@ -294,9 +239,7 @@ def margin_day(chekin, room_id):
         for week1 in weeks1:
             week = []
             for day1 in week1:
-                # Проверяем, что день принадлежит текущему месяцу
                 if day1.month != month1:
-                    # День из другого месяца - пустая кнопка
                     day = (' ', 'donttouchthis', year1, month1)
                     week.append(day)
                     continue
@@ -341,37 +284,32 @@ def margin_day(chekin, room_id):
 
     return unique_months
 
+
 def check_timein(date1, door_id):
     date1 = date1.split(' ')[0]
     date2 = date1.split('-')
-    target_date = datetime.strptime(date1, '%Y-%m-%d').date()
+
+    # Получаем брони с правильной таймзоной
+    bookings, apt_tz = get_bookings_with_local_time(door_id)
+
+    # Целевая дата в таймзоне квартиры
+    naive_date = datetime.strptime(date1, '%Y-%m-%d')
+    target_date = apt_tz.localize(naive_date)
 
     checkout_mask = [[1, 0, 0, 0, 0], [1, 1, 0, 0, 0], [1, 1, 1, 0, 0], [1, 1, 1, 1, 0]]
     checkin_mask = [[0, 1, 1, 1, 1], [0, 0, 1, 1, 1], [0, 0, 0, 1, 1], [0, 0, 0, 0, 1]]
 
-    from database import get_connection
-    db = get_connection()
-    cursor = db.cursor()
-
-
-    # Включаем поддержку словарей
-    cursor.row_factory = sqlite3.Row  # 👈 Эта строка делает результат в виде словаря
-
-    cursor.execute("SELECT * FROM bookings WHERE apartment_id = ?", (str(door_id),))
-    ord_reqDB = cursor.fetchall()
-    db.close()
-
     orders = []
-    for order in ord_reqDB:
-        checkin_date = datetime.strptime(order['checkin_date'], "%Y-%m-%d %H:%M")
-        checkout_date = datetime.strptime(order['checkout_date'], "%Y-%m-%d %H:%M")
-        ord_data = (order['id'], checkin_date, checkout_date, 0)
+    for booking in bookings:
+        checkin_date = booking['checkin']
+        checkout_date = booking['checkout']
+        ord_data = (booking['id'], checkin_date, checkout_date, 0)
 
-        if checkin_date.date() == target_date:
+        if checkin_date.date() == target_date.date():
             orders.append(ord_data)
-        elif checkout_date.date() == target_date:
+        if checkout_date.date() == target_date.date():
             orders.append(ord_data)
-        elif checkin_date.date() == checkout_date.date() == target_date:
+        if checkin_date.date() == checkout_date.date() == target_date.date():
             orders.append(ord_data)
 
     orders = sorted(orders, key=lambda x: x[1])
@@ -384,7 +322,7 @@ def check_timein(date1, door_id):
         h_out = str(order[2].time()).split(':')[0]
 
         mask = None
-        if checkin_date.date() == target_date:
+        if checkin_date.date() == target_date.date():
             if h_in == '08':
                 mask = checkin_mask[0]
             elif h_in == '12':
@@ -394,7 +332,7 @@ def check_timein(date1, door_id):
             elif h_in == '22':
                 mask = checkin_mask[3]
 
-        if checkout_date.date() == target_date:
+        if checkout_date.date() == target_date.date():
             if h_out == '08':
                 mask = checkout_mask[0]
             elif h_out == '12':
@@ -404,7 +342,11 @@ def check_timein(date1, door_id):
             elif h_out == '22':
                 mask = checkout_mask[3]
 
-        if checkin_date.date() == checkout_date.date() == target_date:
+        if checkin_date.date() == checkout_date.date() == target_date.date():
+            # Однодневная бронь
+            mask1 = None
+            mask2 = None
+
             if h_in == '08':
                 mask1 = checkin_mask[0]
             elif h_in == '12':
@@ -423,7 +365,8 @@ def check_timein(date1, door_id):
             elif h_out == '22':
                 mask2 = checkout_mask[3]
 
-            mask = [mask1[i] * mask2[i] for i in range(5)]
+            if mask1 and mask2:
+                mask = [mask1[i] * mask2[i] for i in range(5)]
 
         if mask:
             for i in range(5):
@@ -444,7 +387,6 @@ def check_timein(date1, door_id):
         if d_mask[i] == 0:
             btn_txt = time_marker1[i]
             callback = f'checkoutday_{date2[0]}-{date2[1]}-{date2[2]}-{callback_time[i]}_{door_id}'
-            #callback = f'checkoutday_{door_id}_{date2[0]}_{date2[1]}_{date2[2]}_{callback_time[i]}'
         else:
             btn_txt = time_marker2[i]
             callback = f'orderinfo_{date2[0]}-{date2[1]}-{date2[2]}_{d_mask[i]}'

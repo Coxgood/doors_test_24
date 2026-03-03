@@ -1,0 +1,35 @@
+# Environments
+.env
+.venv/
+venv/
+ENV/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+
+# Databases
+*.db
+*.db.*
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# Generated files
+qrcode.png
+qr_codes/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
