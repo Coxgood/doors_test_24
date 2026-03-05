@@ -217,20 +217,15 @@ async def calendar_checkin(callback: CallbackQuery, state: FSMContext):
     # Устанавливаем состояние для обработки нажатий
     await state.set_state(Form.checkin_date)
 
-    # Отправляем или обновляем сообщение
-    try:
-        await callback.message.edit_text(
-            text=f"📅 <b>Шаг 1/5 • Выберите дату заселения</b>\n{address}",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
-    except:
-        # Если не получается отредактировать, отправляем новое
-        await callback.message.answer(
-            text=f"📅 <b>Шаг 1/5 • Выберите дату заселения</b>\n{address}",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
+    # Удаляем сообщение со списком квартир
+    await callback.message.delete()
+
+    # Отправляем новое с календарём
+    await callback.message.answer(
+        text=f"📅 <b>Шаг 1/5 • Выберите дату заселения</b>\n{address}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
 
     print("=" * 60 + "\n")
 

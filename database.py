@@ -113,7 +113,7 @@ def get_user_role(telegram_id):
 
 
 def get_active_invites(telegram_id):
-    """Получает активные приглашения для пользователя"""
+    """Получает активные приглашения, созданные пользователем"""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -123,6 +123,7 @@ def get_active_invites(telegram_id):
         conn.close()
         return []
 
+    # Получаем внутренний ID пользователя
     cursor.execute("SELECT id FROM users WHERE telegram_id = %s", (telegram_id,))
     user_result = cursor.fetchone()
 
@@ -132,13 +133,18 @@ def get_active_invites(telegram_id):
 
     user_id = user_result['id']
 
+    # Ищем инвайты, где пользователь - создатель, не использованные и не просроченные
     cursor.execute("""
         SELECT * FROM invites 
-        WHERE used_by = %s AND is_used = false
+        WHERE created_by = %s 
+          AND is_used = false 
+          AND expires_at > NOW()
+        ORDER BY created_at DESC
     """, (user_id,))
 
     invites = cursor.fetchall()
     conn.close()
+    print(f"📨 [get_active_invites] Для пользователя {telegram_id} найдено {len(invites)} созданных инвайтов")
     return invites
 
 

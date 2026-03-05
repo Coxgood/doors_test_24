@@ -243,7 +243,7 @@ async def show_profile(callback: CallbackQuery):
 
 @router.callback_query(F.data == "my_invites")
 async def my_invites_handler(callback: CallbackQuery):
-    """Показывает активные приглашения текущего пользователя"""
+    """Показывает активные приглашения с кнопкой отправки"""
 
     from database import get_active_invites
     from datetime import datetime
@@ -254,30 +254,45 @@ async def my_invites_handler(callback: CallbackQuery):
         await callback.answer("📭 У вас нет активных приглашений", show_alert=True)
         return
 
-    text = "⏳ <b>Ваши активные приглашения</b>\n\n"
+    # Удаляем старое сообщение
+    await callback.message.delete()
+
     bot_username = (await callback.bot.get_me()).username
 
     for inv in invites:
-        # inv: (id, code, created_by, role, created_at, expires_at, used_by, used_at, is_used)
-        code = inv[1]  # код
-        role = inv[3]  # роль
-        expires_at = inv[5]  # срок действия
+        code = inv['code']
+        role = inv['role']
+        expires_at = inv['expires_at']
 
-        role_emoji = "👑" if role == 'admin' else "👔"
+        role_emoji = {
+            'admin': '👑',
+            'owner': '🏠',
+            'manager': '📋',
+            'cleaner': '🧹'
+        }.get(role, '👤')
 
-        # обрезаем микросекунды, если есть
-        clean_date = expires_at.split('.')[0]
-        expires = datetime.strptime(clean_date, "%Y-%m-%d %H:%M:%S")
-        expires_str = expires.strftime("%d.%m.%Y %H:%M")
+        expires_str = expires_at.strftime("%d.%m.%Y %H:%M")
+        invite_link = f"https://t.me/{bot_username}?start={code}"
 
-        link = f"https://t.me/{bot_username}?start={code}"
+        # Отдельное сообщение для каждого инвайта с кнопкой отправки
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📤 Отправить приглашение", switch_inline_query=invite_link)],
+        ])
 
-        text += f"{role_emoji} {role}\n🔗 <code>{link}</code>\n⏳ до {expires_str}\n\n"
+        await callback.message.answer(
+            f"{role_emoji} <b>{role}</b>\n"
+            f"📅 Действителен до: {expires_str}",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
 
-    # ✅ ИСПРАВЛЕНО: возврат в меню приглашений
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=f"{config.EMOJI['cancel']} Назад", callback_data="invites_menu")
-    ]])
+    # Кнопка возврата в меню
+    await callback.message.answer(
+        "👥 <b>Управление приглашениями</b>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🔙 Назад", callback_data="users_menu")
+        ]]),
+        parse_mode="HTML"
+    )
 
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await callback.answer()

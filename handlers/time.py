@@ -89,6 +89,9 @@ async def check_time_in_handler(callback: CallbackQuery, state: FSMContext):
     # ====== ПОЛУЧАЕМ АДРЕС ======
     address = data.get('address', '')
 
+    # ====== УДАЛЯЕМ ПРЕДЫДУЩИЕ СООБЩЕНИЕ ======
+    await callback.message.delete()  # удаляем время заезда
+
     # ====== 6. ОТПРАВЛЯЕМ СООБЩЕНИЕ ======
     await callback.message.answer(
         text=(
@@ -199,6 +202,9 @@ async def checkout_date_handler(callback: CallbackQuery, state: FSMContext):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
 
+    # ====== УДАЛЯЕМ ПРЕДЫДУЩИЕ СООБЩЕНИЕ ======
+    await callback.message.delete()  # удаляем время заезда
+
     # Отправляем одно сообщение с адресом и шагом
     await callback.message.answer(
         text=(
@@ -278,6 +284,9 @@ async def checkout_time_handler(callback: CallbackQuery, state: FSMContext):
     # ====== 5. ОТПРАВЛЯЕМ СООБЩЕНИЕ ======
     address = data.get('address', '')
     checkin_date = data['checkin_date'].strftime('%d.%m.%Y %H:%M')
+
+    # ====== УДАЛЯЕМ ПРЕДЫДУЩИЕ СООБЩЕНИЕ ======
+    await callback.message.delete()  # удаляем дату выезда
 
     await callback.message.answer(
         text=(
@@ -369,6 +378,9 @@ async def order_check_handler(callback: CallbackQuery, state: FSMContext):
     delta_time = data['checkout_date'] - data['checkin_date']
     days = delta_time.days
     hours = delta_time.seconds // 3600
+
+    # ====== УДАЛЯЕМ ПРЕДЫДУЩИЕ СООБЩЕНИЕ ======
+    await callback.message.delete()  # удаляем время выезда
 
     # ====== 8. ОТПРАВЛЯЕМ СООБЩЕНИЕ ======
     await callback.message.answer(

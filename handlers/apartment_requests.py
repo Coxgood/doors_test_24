@@ -48,8 +48,10 @@ async def new_apartment_request_start(callback: CallbackQuery, state: FSMContext
         f"{config.EMOJI['apartment']} <b>Новая заявка на квартиру</b>\n\n"
         f"Введите адрес квартиры:\n"
         f"(например: ул. Светланская, д. 20, кв. 5)",
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=get_cancel_keyboard()  # 👈 кнопка отмены
     )
+
 
 
 @router.message(ApartmentRequest.waiting_for_address)
@@ -123,9 +125,10 @@ async def confirm_address(callback: CallbackQuery, state: FSMContext):
     logger.info(f"🟡 Установлено состояние: waiting_for_wifi_ssid")
 
     await callback.message.edit_text(
-        f"{config.EMOJI['apartment']} <b>Настройки Wi-Fi</b>\n\n"
+        f"{config.EMOJI['apartment']} <b>Параметры квартиры</b>\n\n"
         f"Введите название Wi-Fi сети (SSID):",
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=get_cancel_keyboard()  # 👈 кнопка отмены
     )
 
 
@@ -146,7 +149,8 @@ async def process_wifi_ssid(message: Message, state: FSMContext):
     logger.info(f"🔴 Установлено состояние: waiting_for_wifi_password")
 
     await message.answer(
-        f"Введите пароль Wi-Fi:"
+        f"Введите пароль Wi-Fi:",
+        reply_markup=get_cancel_keyboard()  # 👈 кнопка отмены
     )
 
 
@@ -209,7 +213,10 @@ async def process_wifi_password(message: Message, state: FSMContext):
             f"{config.EMOJI['confirm']} <b>Заявка отправлена!</b>\n\n"
             f"ID заявки: {request_id}\n"
             f"Статус: ⏳ ожидает подтверждения администратором",
-            parse_mode="HTML"
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[  # 👈 возврат в меню
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="start")]
+            ])
         )
         logger.info(f"✅ [process_wifi_password] Заявка {request_id} успешно создана")
     else:
@@ -226,16 +233,11 @@ async def process_wifi_password(message: Message, state: FSMContext):
 async def show_admin_requests(callback: CallbackQuery):
     """Показывает все активные заявки для ADMIN/ROOT"""
 
-    logger.info(f"🟢 [show_admin_requests] Запрос списка заявок от админа")
-
     await callback.answer()
     admin_id = get_user_id_by_telegram(callback.from_user.id)
     role = get_user_role(callback.from_user.id)
 
-    logger.info(f"🟢 admin_id: {admin_id}, role: {role}")
-
     requests = get_pending_requests_for_admin(admin_id, role)
-    logger.info(f"🟢 Найдено заявок: {len(requests)}")
 
     if not requests:
         await callback.message.edit_text(
@@ -246,34 +248,36 @@ async def show_admin_requests(callback: CallbackQuery):
         )
         return
 
-    text = f"{config.EMOJI['apartment']} <b>Активные заявки</b>\n\n"
-    keyboard = []
+    # Удаляем старое сообщение
+    await callback.message.delete()
 
     for req in requests:
-        logger.info(f"🟢 Заявка ID {req['apartment_id']}: {req['address']}")
-        text += (
-            f"ID: {req['apartment_id']}\n"
+        # Формируем красивое сообщение для каждой заявки
+        text = (
+            f"🏠 <b>Заявка #{req['apartment_id']}</b>\n"
             f"👤 Владелец: {req['owner_name']}\n"
             f"📍 {req['address']}\n"
-            f"🕐 {req['timezone']}\n"
-            f"📶 {req['wifi_ssid']}\n\n"
+            f"🕐 Часовой пояс: {req['timezone']}\n"
+            f"📶 Wi-Fi: {req['wifi_ssid']}\n"
+            f"📅 Создана: {req['created_at'].strftime('%d.%m.%Y %H:%M')}"
         )
-        keyboard.append([
-            InlineKeyboardButton(
-                text=f"✅ ID {req['apartment_id']} (подтвердить)",
-                callback_data=f"approve_req_{req['apartment_id']}"
-            ),
-            InlineKeyboardButton(
-                text=f"❌ Отклонить",
-                callback_data=f"reject_req_{req['apartment_id']}"
-            )
+
+        # Кнопки для каждой заявки
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"approve_req_{req['apartment_id']}"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_req_{req['apartment_id']}")
+            ]
         ])
 
-    keyboard.append([InlineKeyboardButton(text="🔙 Назад", callback_data="start")])
+        await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
-    await callback.message.edit_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+    # Кнопка возврата в меню
+    await callback.message.answer(
+        "👥 <b>Управление заявками</b>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🔙 Назад", callback_data="start")
+        ]]),
         parse_mode="HTML"
     )
 
@@ -403,3 +407,10 @@ async def cancel_request_handler(callback: CallbackQuery):
         await callback.answer("❌ Ошибка", show_alert=True)
 
     await show_my_requests(callback)
+
+
+def get_cancel_keyboard():
+    """Возвращает клавиатуру с кнопкой отмены"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"{config.EMOJI['cancel']} Отмена", callback_data="start")]
+    ])

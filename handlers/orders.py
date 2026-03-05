@@ -200,7 +200,7 @@ async def order_info_handler(callback: CallbackQuery, state: FSMContext):
         f"{config.EMOJI['time']} Период: {delta_str}\n"
         f"{config.EMOJI['id']} Статус: {status}\n"
     )
-
+    await callback.message.delete()
     await callback.message.answer_photo(
         photo=photo,
         caption=caption,

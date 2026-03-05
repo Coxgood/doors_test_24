@@ -1,29 +1,36 @@
-# check_my_access.py
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from datetime import datetime
 
 DATABASE_URL = "postgresql://doors_user:GlDxzFUy6V@localhost/doors_db"
-MY_TELEGRAM_ID = 506169873
 
 try:
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-    cursor = conn.cursor()
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
 
-    # Проверяем, что функция get_user_role возвращает
-    cursor.execute("""
-        SELECT role FROM users WHERE telegram_id = %s;
-    """, (MY_TELEGRAM_ID,))
+    cur.execute("""
+        SELECT id, code, role, created_by, expires_at, is_used 
+        FROM invites 
+        ORDER BY id DESC;
+    """)
 
-    result = cursor.fetchone()
-    print(f"Роль в БД: {result['role'] if result else 'None'}")
+    invites = cur.fetchall()
 
-    # Проверяем функцию get_user_id_by_telegram
-    cursor.execute("""
-        SELECT id FROM users WHERE telegram_id = %s;
-    """, (MY_TELEGRAM_ID,))
+    print("\n" + "=" * 50)
+    print("🔗 ВСЕ ИНВАЙТЫ")
+    print("=" * 50)
 
-    result = cursor.fetchone()
-    print(f"ID в БД: {result['id'] if result else 'None'}")
+    if not invites:
+        print("❌ В базе нет инвайтов")
+    else:
+        for inv in invites:
+            status = "✅ ИСПОЛЬЗОВАН" if inv[5] else "⏳ АКТИВЕН"
+            expires = inv[4].strftime("%d.%m.%Y %H:%M") if inv[4] else "нет"
+            print(f"\nID: {inv[0]}")
+            print(f"  Код: {inv[1]}")
+            print(f"  Роль: {inv[2]}")
+            print(f"  Создатель ID: {inv[3]}")
+            print(f"  Истекает: {expires}")
+            print(f"  Статус: {status}")
 
     conn.close()
 
