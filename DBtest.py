@@ -1,36 +1,60 @@
 import psycopg2
-from datetime import datetime
+from psycopg2.extras import RealDictCursor
 
 DATABASE_URL = "postgresql://doors_user:GlDxzFUy6V@localhost/doors_db"
 
 try:
-    conn = psycopg2.connect(DATABASE_URL)
-    cur = conn.cursor()
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    cursor = conn.cursor()
 
-    cur.execute("""
-        SELECT id, code, role, created_by, expires_at, is_used 
-        FROM invites 
-        ORDER BY id DESC;
+    print("=" * 60)
+    print("🔍 СТРУКТУРА ТАБЛИЦЫ devices")
+    print("=" * 60)
+
+    # Получаем структуру таблицы
+    cursor.execute("""
+        SELECT 
+            column_name,
+            data_type,
+            is_nullable,
+            column_default
+        FROM information_schema.columns 
+        WHERE table_name = 'devices' 
+        ORDER BY ordinal_position;
     """)
 
-    invites = cur.fetchall()
+    columns = cursor.fetchall()
 
-    print("\n" + "=" * 50)
-    print("🔗 ВСЕ ИНВАЙТЫ")
-    print("=" * 50)
-
-    if not invites:
-        print("❌ В базе нет инвайтов")
+    if not columns:
+        print("❌ Таблица 'devices' не существует!")
     else:
-        for inv in invites:
-            status = "✅ ИСПОЛЬЗОВАН" if inv[5] else "⏳ АКТИВЕН"
-            expires = inv[4].strftime("%d.%m.%Y %H:%M") if inv[4] else "нет"
-            print(f"\nID: {inv[0]}")
-            print(f"  Код: {inv[1]}")
-            print(f"  Роль: {inv[2]}")
-            print(f"  Создатель ID: {inv[3]}")
-            print(f"  Истекает: {expires}")
-            print(f"  Статус: {status}")
+        print(f"\n📊 Найдено полей: {len(columns)}\n")
+
+        for col in columns:
+            nullable = "NULL" if col['is_nullable'] == 'YES' else "NOT NULL"
+            default = f" DEFAULT {col['column_default']}" if col['column_default'] else ""
+            print(f"  • {col['column_name']}: {col['data_type']} {nullable}{default}")
+
+        # Проверяем наличие apartment_id
+        has_apartment = any(col['column_name'] == 'apartment_id' for col in columns)
+        print(f"\n🔑 Поле apartment_id: {'✅ ЕСТЬ' if has_apartment else '❌ НЕТ'}")
+
+    # Покажем несколько записей (если есть)
+    cursor.execute("SELECT COUNT(*) FROM devices;")
+    count = cursor.fetchone()['count']
+    print(f"\n📈 Всего записей в devices: {count}")
+
+    if count > 0:
+        cursor.execute("""
+            SELECT device_id, esp32_id, apartment_id, last_seen, is_active 
+            FROM devices 
+            LIMIT 5;
+        """)
+        records = cursor.fetchall()
+        print("\n🔍 Пример записей:")
+        for rec in records:
+            print(f"  • device_id: {rec['device_id']}, esp32_id: {rec['esp32_id']}, "
+                  f"apartment_id: {rec['apartment_id']}, last_seen: {rec['last_seen']}")
 
     conn.close()
 

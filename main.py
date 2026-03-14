@@ -31,7 +31,6 @@ dp.include_router(apartment_requests.router)
 # start.router — самым последним!
 dp.include_router(start.router)
 
-
 async def main():
     """Запуск бота"""
     init_db()

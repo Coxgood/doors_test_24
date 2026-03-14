@@ -127,7 +127,6 @@ async def calendar_checkin(callback: CallbackQuery, state: FSMContext):
 
     # Проверяем state
     state_data = await state.get_data()
-    print(f"📦 state_data: {state_data}")
 
     if 'user_id' not in state_data:
         print("❌ Нет user_id в state, очищаем")
@@ -196,7 +195,7 @@ async def calendar_checkin(callback: CallbackQuery, state: FSMContext):
         for month in months1:
             month_parts = month.split('-')
             btn_text = f"{config.MONTHS[int(month_parts[1])]} {month_parts[0]}"
-            callback_data = f'calendarCheckin_{month_parts[0]}-{month_parts[1]}-{month_parts[2]}_{door_id}'
+            callback_data = f'calendarCheckin_{month_parts[0]}-{month_parts[1]}-{month_parts[2]}-{tz_offset}_{door_id}'
             month_buttons.append(InlineKeyboardButton(
                 text=btn_text,
                 callback_data=callback_data

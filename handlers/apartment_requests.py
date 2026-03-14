@@ -17,6 +17,10 @@ from database import (
 )
 import logging
 
+from aiogram.types import FSInputFile
+from utils import generate_service_qr
+import os
+
 # Настраиваем логирование
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,7 +51,7 @@ async def new_apartment_request_start(callback: CallbackQuery, state: FSMContext
     await callback.message.answer(
         f"{config.EMOJI['apartment']} <b>Новая заявка на квартиру</b>\n\n"
         f"Введите адрес квартиры:\n"
-        f"(например: ул. Светланская, д. 20, кв. 5)",
+        f"(например: г.Москва ул. Остоженка, д. 5, кв. 5)",
         parse_mode="HTML",
         reply_markup=get_cancel_keyboard()  # 👈 кнопка отмены
     )
@@ -227,6 +231,68 @@ async def process_wifi_password(message: Message, state: FSMContext):
         )
         logger.error(f"❌ [process_wifi_password] Не удалось создать заявку")
 
+# ====== СЕРВИСНЫЙ QR ======
+@router.callback_query(F.data.startswith("service_qr_"))
+async def service_qr_handler(callback: CallbackQuery):
+    """Генерация сервисного QR для квартиры"""
+
+    apartment_id = int(callback.data.split("_")[2])
+    logger.info(f"🔐 [service_qr_handler] Запрос сервисного QR для квартиры {apartment_id}")
+
+    # Получаем данные квартиры
+    from database import get_connection
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT a.wifi_ssid, a.wifi_password, d.esp32_id
+        FROM apartments a
+        LEFT JOIN devices d ON d.apartment_id = a.apartment_id
+        WHERE a.apartment_id = %s
+    """, (apartment_id,))
+
+    apt = cur.fetchone()
+    conn.close()
+
+    if not apt:
+        await callback.answer("❌ Квартира не найдена", show_alert=True)
+        return
+
+    # Генерируем QR
+    try:
+        from utils import generate_service_qr
+        from aiogram.types import FSInputFile
+
+        # 👇 ИСПРАВЛЕНО: используем sid вместо esp32_id
+        sid = apt['esp32_id'] or f"ESP32_{apartment_id}"
+        qr_file, qr_data = generate_service_qr(
+            sid=sid,
+            apartment_id=apartment_id,
+            wifi_ssid=apt['wifi_ssid'],
+            wifi_password=apt['wifi_password']
+        )
+
+        # Отправляем QR
+        photo = FSInputFile(qr_file)
+        await callback.message.answer_photo(
+            photo=photo,
+            caption=(
+                f"🔐 <b>Сервисный QR для квартиры #{apartment_id}</b>\n\n"
+                f"📶 Wi-Fi: {apt['wifi_ssid']}\n"
+                f"🔌 ESP32: {sid}\n\n"
+                f"Отсканируйте этот QR ESP32 при первом запуске\n"
+                f"или для перенастройки устройства"
+            ),
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад", callback_data="start")]
+            ])
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка генерации QR: {e}")
+        await callback.answer("❌ Ошибка при создании QR", show_alert=True)
+
+    await callback.answer()
 
 # ====== ПРОСМОТР ЗАЯВОК ДЛЯ ADMIN/ROOT ======
 @router.callback_query(F.data == "admin_requests")
@@ -298,11 +364,20 @@ async def approve_request_handler(callback: CallbackQuery):
 
     if success:
         await callback.answer("✅ Заявка подтверждена, квартира создана", show_alert=True)
+
+        # Добавляем кнопку для сервисного QR
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔐 Сервисный QR", callback_data=f"service_qr_{apartment_id}")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="start")]
+        ])
+
+        await callback.message.answer(
+            f"✅ Квартира #{apartment_id} подтверждена!\n\n"
+            f"Теперь можно сгенерировать сервисный QR для настройки ESP32.",
+            reply_markup=keyboard
+        )
     else:
         await callback.answer("❌ Ошибка при подтверждении", show_alert=True)
-
-    # Обновляем список заявок
-    await show_admin_requests(callback)
 
 
 # ====== ОТКЛОНЕНИЕ ЗАЯВКИ ======

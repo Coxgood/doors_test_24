@@ -522,34 +522,42 @@ def reject_request(apartment_id, admin_id, canceled_by_user=False):
 # ====== ГЕОКОДИНГ (DaData) ======
 def geocode_address(address):
     """
-    Геокодирование адреса через DaData
-    Возвращает словарь с данными адреса
+    Геокодирование адреса через DaData со строгой проверкой
     """
     if not DADATA_TOKEN or not DADATA_SECRET:
-        print("⚠️ DaData ключи не найдены, используется заглушка")
         return fallback_geocode(address)
 
     try:
-        # Используем синхронный клиент Dadata
         with Dadata(DADATA_TOKEN, DADATA_SECRET) as dadata:
             result = dadata.clean("address", address)
 
             if not result:
-                print(f"⚠️ DaData не вернул результат для: {address}")
-                return fallback_geocode(address)
+                return None
 
-            # Определяем часовой пояс по координатам (если есть)
-            timezone = 'Europe/Moscow'  # по умолчанию
-            if result.get('geo_lat') and result.get('geo_lon'):
-                timezone = get_timezone_by_coords(result['geo_lat'], result['geo_lon'])
+            # 🔥 СТРОГАЯ ПРОВЕРКА 🔥
 
-            # Формируем нормализованный адрес
-            normalized = result.get('result', address)
+            # 1. Проверяем качество распознавания (qc должен быть 0)
+            if result.get('qc') != 0:
+                print(f"❌ Адрес распознан плохо (qc={result.get('qc')}): {address}")
+                return None
 
-            # Собираем все данные
+            # 2. Проверяем полноту адреса (qc_complete должен быть 0 или 5)
+            qc_complete = result.get('qc_complete')
+            if qc_complete not in [0, 5]:  # 0 - есть квартира, 5 - есть дом
+                print(f"❌ Адрес неполный (qc_complete={qc_complete}): {address}")
+                return None
+
+            # 3. Проверяем, что есть координаты
+            if not result.get('geo_lat') or not result.get('geo_lon'):
+                print(f"❌ Нет координат: {address}")
+                return None
+
+            # Если всё хорошо — определяем таймзону
+            timezone = get_timezone_by_coords(result['geo_lat'], result['geo_lon'])
+
+            # Формируем результат
             geo_data = {
-                # Основные поля
-                'normalized': normalized,
+                'normalized': result.get('result', address),
                 'city': result.get('city') or result.get('settlement') or result.get('region'),
                 'street': result.get('street'),
                 'building': result.get('house'),
@@ -558,49 +566,14 @@ def geocode_address(address):
                 'timezone': timezone,
                 'lat': result.get('geo_lat'),
                 'lon': result.get('geo_lon'),
-
-                # Дополнительные поля для будущего использования
-                'region': result.get('region'),
-                'area': result.get('area'),  # район области
-                'city_district': result.get('city_district'),  # район города
-                'street_type': result.get('street_type'),
-                'house_type': result.get('house_type'),
-                'flat_type': result.get('flat_type'),
-                'flat_area': result.get('flat_area'),  # площадь квартиры
-                'flat_price': result.get('flat_price'),  # кадастровая стоимость
-
-                # Коды КЛАДР и ФИАС
-                'region_kladr_id': result.get('region_kladr_id'),
-                'region_fias_id': result.get('region_fias_id'),
-                'city_kladr_id': result.get('city_kladr_id'),
-                'city_fias_id': result.get('city_fias_id'),
-                'street_kladr_id': result.get('street_kladr_id'),
-                'street_fias_id': result.get('street_fias_id'),
-                'house_kladr_id': result.get('house_kladr_id'),
-                'house_fias_id': result.get('house_fias_id'),
-                'fias_id': result.get('fias_id'),
-                'fias_level': result.get('fias_level'),
-                'kladr_id': result.get('kladr_id'),
-
-                # Кадастровые номера
-                'house_cadnum': result.get('house_cadnum'),
-                'flat_cadnum': result.get('flat_cadnum'),
-                'stead_cadnum': result.get('stead_cadnum'),
-
-                # Дополнительная информация
-                'okato': result.get('okato'),
-                'oktmo': result.get('oktmo'),
-                'tax_office': result.get('tax_office'),
-                'qc': result.get('qc'),  # код качества
-                'qc_geo': result.get('qc_geo'),  # код точности координат
             }
 
-            print(f"✅ DaData: {normalized}")
+            print(f"✅ DaData: {geo_data['normalized']}")
             return geo_data
 
     except Exception as e:
         print(f"❌ Ошибка DaData: {e}")
-        return fallback_geocode(address)
+        return None
 
 
 def fallback_geocode(address):

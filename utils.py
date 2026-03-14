@@ -8,7 +8,45 @@ from database import get_connection, get_bookings_with_local_time
 import config
 import qrcode
 
+import qrcode
+import base64
+import json
+from cryptography.fernet import Fernet
+import os
+
 # ========== ГЕНЕРАЦИЯ ==========
+
+# Ключ для шифрования сервисных QR (должен быть в .env)
+SERVICE_QR_KEY = os.getenv('SERVICE_QR_KEY')
+
+
+def generate_service_qr(sid, apartment_id, wifi_ssid, wifi_password):
+    """
+    Генерирует сервисный QR-код для настройки ESP32 (без шифрования для теста)
+    """
+    # Создаём папку если нет
+    os.makedirs('qr_codes', exist_ok=True)
+
+    # Данные для QR
+    data = {
+        'sid': sid,
+        'apt': apartment_id,
+        'ssid': wifi_ssid,
+        'pass': wifi_password,
+        'type': 'setup',
+        'ts': int(datetime.now().timestamp())
+    }
+
+    # Просто JSON + base64 (без шифрования)
+    json_str = json.dumps(data)
+    encoded = base64.b64encode(json_str.encode()).decode()
+
+    # Генерируем QR
+    img = qrcode.make(encoded)
+    filename = f"qr_codes/service_{sid}.png"
+    img.save(filename)
+
+    return filename, encoded
 
 def generate_password(length=12):
     """Генерирует пароль доступа"""
